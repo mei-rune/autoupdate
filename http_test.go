@@ -111,8 +111,6 @@ func TestSimple1(t *testing.T) {
 		return
 	}
 
-
-
 	pkgInfo := expected[0].List[1]
 	pkgInfo.SUM = "ABC"
 

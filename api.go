@@ -25,6 +25,3 @@ type Client interface {
 
 	RetrievePackage(ctx context.Context, info PackageInfo, dir string) (string, error)
 }
-
-type Updater struct {
-}
