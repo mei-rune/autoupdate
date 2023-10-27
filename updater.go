@@ -3,19 +3,51 @@ package autoupdate
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 
-	"github.com/rogpeppe/go-internal/semver"
+	"golang.org/x/mod/semver"
 )
 
+func NewUpdater(opts Options) (*Updater, error) {
+	if opts.BaseURL == "" {
+		return nil, errors.New("'base_url' 不可为空")
+	}
+	u, err := url.Parse(opts.BaseURL)
+	if err != nil {
+		return nil, errors.New("'base_url' 格式不正确: " + err.Error())
+	}
+	client := &HTTPClient{
+		BaseURL: u,
+		Client:  opts.HTTP,
+	}
+
+	if opts.Repo == "" {
+		return nil, errors.New("'repo' 不可为空")
+	}
+	if opts.RootDir == "" {
+		return nil, errors.New("'root_dir' 不可为空")
+	}
+
+	if opts.UpdateDir == "" {
+		opts.UpdateDir = filepath.Join(opts.RootDir, "patchs")
+	}
+
+	if opts.BackupDir == "" {
+		opts.BackupDir = filepath.Join(opts.RootDir, "softbase")
+	}
+
+	return &Updater{
+		Client:  client,
+		Options: opts,
+	}, nil
+}
+
 type Updater struct {
-	Repo   string
 	Client Client
-	Dir    string
-	PkgDir string
 
 	Options Options
 
@@ -31,7 +63,7 @@ func (updater *Updater) DoUpdate(ctx context.Context) error {
 		}
 	}
 
-	updateList, err := updater.Client.Read(ctx, updater.Repo)
+	updateList, err := updater.Client.Read(ctx, updater.Options.Repo)
 	if err != nil {
 		return err
 	}
@@ -51,7 +83,7 @@ func (updater *Updater) DoUpdate(ctx context.Context) error {
 }
 
 func (updater *Updater) ReadVersions(ctx context.Context) ([]string, error) {
-	fis, err := os.ReadDir(updater.PkgDir)
+	fis, err := os.ReadDir(updater.Options.UpdateDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -89,7 +121,7 @@ func (updater *Updater) ReadCurrentVersion(ctx context.Context) (string, error) 
 }
 
 func (updater *Updater) Update(ctx context.Context, version string, info PackageInfo) error {
-	versionDir := filepath.Join(updater.PkgDir, version)
+	versionDir := filepath.Join(updater.Options.UpdateDir, version)
 	if err := os.MkdirAll(versionDir, 0775); err != nil {
 		return errors.New("尝试新建目录 '" + versionDir + "' 失败: " + err.Error())
 	}
@@ -106,7 +138,7 @@ func (updater *Updater) Update(ctx context.Context, version string, info Package
 	if err := Uncompress(filename, targetDir); err != nil {
 		return errors.New("尝试解压安装包 '" + filename + "' 失败: " + err.Error())
 	}
-	if err := Apply(targetDir, updater.Dir, updater.Options); err != nil {
+	if err := Apply(targetDir, updater.Options.RootDir, updater.Options); err != nil {
 		return errors.New("尝试更新文件失败: " + err.Error())
 	}
 	return nil
@@ -114,9 +146,9 @@ func (updater *Updater) Update(ctx context.Context, version string, info Package
 
 func selectVersions(updateList []AvailableUpdate, currentVersion string) ([]string, []PackageInfo, error) {
 	list, err := selectUpdateList(updateList, currentVersion)
-  if err != nil {
-    return nil, nil, err
-  }
+	if err != nil {
+		return nil, nil, err
+	}
 
 	arch := runtime.GOOS + "_" + runtime.GOARCH
 

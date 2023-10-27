@@ -7,10 +7,6 @@ import (
 	"path/filepath"
 )
 
-type Options struct {
-	BackupDir string
-}
-
 func Apply(src, dest string, opts Options) error {
 	return apply(src, dest, opts)
 }

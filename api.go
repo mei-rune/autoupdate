@@ -1,10 +1,19 @@
 package autoupdate
 
-import "context"
+import (
+	"context"
+	"net/http"
+)
 
-type Config struct {
-	BaseURL string
-	Repo    string
+type Options struct {
+	BaseURL string `json:"base_url"`
+	Repo    string `json:"repo"`
+
+	RootDir   string `json:"root_dir"`
+	UpdateDir string `json:"update_dir"`
+	BackupDir string `json:"backup_dir"`
+
+	HTTP *http.Client `json:"-"`
 }
 
 type AvailableUpdate struct {
