@@ -3,6 +3,7 @@ package autoupdate
 import (
 	"context"
 	"errors"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -74,10 +75,13 @@ func (updater *Updater) DoUpdate(ctx context.Context) error {
 	}
 
 	for idx, version := range versionList {
+		log.Println("准备升级到 '" + version + "'")
 		err = updater.Update(ctx, version, pkgList[idx])
 		if err != nil {
-			return err
+			log.Println("升级到 '"+version+"' 失败,", err)
+			return errors.New("升级到 '" + version + "' 失败, " + err.Error())
 		}
+		log.Println("成功升级到 '" + version + "'")
 	}
 	return nil
 }
