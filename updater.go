@@ -55,6 +55,11 @@ type Updater struct {
 	currentVersion string
 }
 
+func (updater *Updater) Test(ctx context.Context) error {
+	_, err := updater.Client.Read(ctx, updater.Options.Repo)
+	return err
+}
+
 func (updater *Updater) DoUpdate(ctx context.Context) error {
 	if updater.currentVersion == "" {
 		var err error
