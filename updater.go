@@ -66,6 +66,10 @@ type Updater struct {
 	currentVersion string
 }
 
+func (updater *Updater) GetArch() string {
+	return getArch()
+}
+
 func (updater *Updater) Test(ctx context.Context) error {
 	_, err := updater.Client.Read(ctx, updater.Options.Repo)
 	return err
@@ -177,22 +181,39 @@ func (updater *Updater) Update(ctx context.Context, version string, info Package
 	return nil
 }
 
+func getArch() string {
+	return runtime.GOOS + "_" + runtime.GOARCH
+}
+
+func getNoArch() string {
+	return runtime.GOOS + "_noarch"
+}
+
 func selectVersions(updateList []AvailableUpdate, currentVersion string) ([]string, []PackageInfo, error) {
 	list, err := selectUpdateList(updateList, currentVersion)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	arch := runtime.GOOS + "_" + runtime.GOARCH
-
 	var versionResults []string
 	var pkgResults []PackageInfo
 
 	for _, pkg := range list {
-		for _, info := range pkg.List {
-			if info.Arch == arch {
-				versionResults = append(versionResults, pkg.Version)
-				pkgResults = append(pkgResults, info)
+		for _, arch := range []string {
+			getArch(),
+			getNoArch(),
+			"noarch",
+		} {
+			found := false
+			for _, info := range pkg.List {
+				if info.Arch == arch {
+					found = true
+					versionResults = append(versionResults, pkg.Version)
+					pkgResults = append(pkgResults, info)
+					break
+				}
+			}
+			if found {
 				break
 			}
 		}
