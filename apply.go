@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 func Apply(src, dest string, opts Options) error {
@@ -89,7 +90,18 @@ func archiveFile(srcFile, destDir string) error {
 		return errors.New("尝试新建档案目录 '" + destDir + "' 失败: " + err.Error())
 	}
 
-	return copyFile(srcFile, filepath.Join(destDir, filepath.Base(srcFile)))
+	destFile := filepath.Join(destDir, filepath.Base(srcFile))
+	for i := 0; ; i++ {
+		if _, err := os.Stat(destFile); err != nil {
+			if !os.IsNotExist(err) {
+				return err
+			}
+			break
+		} else {
+			destFile = destFile + ".bak" + strconv.Itoa(i)
+		}
+	}
+	return copyFile(srcFile, destFile)
 }
 
 func copyFile(src, dst string) (err error) {

@@ -45,6 +45,17 @@ func NewUpdater(opts Options) (*Updater, error) {
 		Client:  client,
 		Options: opts,
 	}, nil
+
+	// updater := &Updater{
+	// 	Client:  client,
+	// 	Options: opts,
+	// }
+
+	// _, err = updater.ReadCurrentVersion(context.Background())
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return updater, nil
 }
 
 type Updater struct {
@@ -60,38 +71,51 @@ func (updater *Updater) Test(ctx context.Context) error {
 	return err
 }
 
-func (updater *Updater) DoUpdate(ctx context.Context) error {
+func (updater *Updater) DoUpdate(ctx context.Context) (bool, error) {
 	if updater.currentVersion == "" {
 		var err error
 		updater.currentVersion, err = updater.ReadCurrentVersion(ctx)
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 
 	updateList, err := updater.Client.Read(ctx, updater.Options.Repo)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	versionList, pkgList, err := selectVersions(updateList, updater.currentVersion)
 	if err != nil {
-		return err
+		return false, err
+	}
+	if len(versionList) == 0 {
+		return false, nil
 	}
 
+	currentVersion := updater.currentVersion
+
+	hasUpdateOk := false
 	for idx, version := range versionList {
-		log.Println("准备升级到 '" + version + "'")
+		log.Println("准备从 '" + currentVersion + "' 升级到 '" + version + "'")
 		err = updater.Update(ctx, version, pkgList[idx])
 		if err != nil {
-			log.Println("升级到 '"+version+"' 失败,", err)
-			return errors.New("升级到 '" + version + "' 失败, " + err.Error())
+			log.Println("从 '"+currentVersion+"' 升级到 '"+version+"' 失败,", err)
+			return hasUpdateOk, errors.New("从 '" + currentVersion + "' 升级到 '" + version + "' 失败, " + err.Error())
 		}
 		log.Println("成功升级到 '" + version + "'")
+		hasUpdateOk = true
+		currentVersion = version
+		updater.currentVersion = version
 	}
-	return nil
+	return hasUpdateOk, nil
 }
 
-func (updater *Updater) ReadVersions(ctx context.Context) ([]string, error) {
+func (updater *Updater) GetCurrentVersion(ctx context.Context) string {
+	return updater.currentVersion
+}
+
+func (updater *Updater) ReadLocalVersions(ctx context.Context) ([]string, error) {
 	fis, err := os.ReadDir(updater.Options.UpdateDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -111,7 +135,7 @@ func (updater *Updater) ReadVersions(ctx context.Context) ([]string, error) {
 }
 
 func (updater *Updater) ReadCurrentVersion(ctx context.Context) (string, error) {
-	versionList, err := updater.ReadVersions(ctx)
+	versionList, err := updater.ReadLocalVersions(ctx)
 	if err != nil {
 		return "", errors.New("读当前版本号时，" + err.Error())
 	}

@@ -105,7 +105,7 @@ func (hs *HTTPServer) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	// repo := pa[:idx]
 	version := pa[idx+1:]
 
-	if semver.IsValid(version) {
+	if !semver.IsValid(version) {
 		http.Error(w, "版本号不正确", http.StatusBadRequest)
 		return
 	}
