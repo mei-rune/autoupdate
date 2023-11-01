@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"io/fs"
@@ -22,13 +24,34 @@ import (
 	"golang.org/x/mod/semver"
 )
 
+func GetDefaultSignMethod() string {
+	return jwt.SigningMethodPS512.Alg()
+}
+
 func LoadRsaPublicKey(keyFile string) (crypto.PublicKey, error) {
 	key, err := ioutil.ReadFile(keyFile)
 	if err != nil {
 		return nil, err
 	}
-	rsaKey, err := jwt.ParseRSAPublicKeyFromPEM(key)
-	return rsaKey, err
+
+	// Parse PEM block
+	var block *pem.Block
+	if block, _ = pem.Decode(key); block == nil {
+		return nil, jwt.ErrKeyMustBePEMEncoded
+	}
+
+	// Parse the key
+	var parsedKey interface{}
+	if parsedKey, err = x509.ParsePKIXPublicKey(block.Bytes); err != nil {
+		if parsedKey, err = x509.ParsePKCS1PublicKey(block.Bytes); err != nil {
+			if cert, err := x509.ParseCertificate(block.Bytes); err == nil {
+				parsedKey = cert.PublicKey
+			} else {
+				return nil, err
+			}
+		}
+	}
+	return parsedKey, nil
 }
 
 func LoadRsaPrivateKey(keyFile string) (crypto.PrivateKey, error) {
@@ -36,11 +59,27 @@ func LoadRsaPrivateKey(keyFile string) (crypto.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	rsaKey, err := jwt.ParseRSAPrivateKeyFromPEM(key)
-	return rsaKey, err
+	// Parse PEM block
+	var block *pem.Block
+	if block, _ = pem.Decode(key); block == nil {
+		return nil, jwt.ErrKeyMustBePEMEncoded
+	}
+
+	var parsedKey interface{}
+	if parsedKey, err = x509.ParsePKCS1PrivateKey(block.Bytes); err != nil {
+		if parsedKey, err = x509.ParsePKCS8PrivateKey(block.Bytes); err != nil {
+			if parsedKey, err = x509.ParseECPrivateKey(block.Bytes); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return parsedKey, nil
 }
 
 func NewHTTPServer(osdir string, signMethod, privateKey string) (*HTTPServer, error) {
+	if signMethod == "" {
+		signMethod = GetDefaultSignMethod()
+	}
 	hs := &HTTPServer{
 		dir:           os.DirFS(osdir),
 		osdir:         osdir,
@@ -79,7 +118,12 @@ func (hs *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	if r.Method == http.MethodGet {
-		st, err := fs.Stat(hs.dir, strings.Trim(r.URL.Path, "/"))
+		dir := strings.Trim(r.URL.Path, "/")
+		if dir == "" {
+			http.Error(w, "您必须指定一个仓库!", http.StatusBadRequest)
+			return
+		}
+		st, err := fs.Stat(hs.dir, dir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -282,6 +326,10 @@ const xsignKey = "X-Hw-Sign"
 
 func (hs *HTTPServer) handleDir(w http.ResponseWriter, r *http.Request, st fs.FileInfo) {
 	pa := strings.Trim(r.URL.Path, "/")
+	if !strings.Contains(pa, "/") {
+		http.Error(w, "仓库名不正确，仓库名一般格式为 '仓库名/分支'", http.StatusBadRequest)
+		return
+	}
 
 	cachedValue := func() *dirCache {
 		hs.dirCacheLock.Lock()
@@ -409,6 +457,9 @@ func (c *HTTPClient) LoadSigningMethod(alg, keyFile string) error {
 
 		c.publicKey = key
 	}
+	if alg == "" {
+		alg = GetDefaultSignMethod()
+	}
 	c.signingMethod = jwt.GetSigningMethod(alg)
 	return nil
 }
@@ -441,17 +492,23 @@ func (c *HTTPClient) Read(ctx context.Context, repo string) ([]AvailableUpdate, 
 	}
 
 	bs, err := ioutil.ReadAll(response.Body)
-	if len(bs) > 0 {
+	if err != nil {
 		return nil, errors.New("读数据失败: " + err.Error())
 	}
 
 	sig := response.Header.Get(xsignKey)
-	if sig == "" && c.publicKey != nil {
-		return nil, errors.New("响应中缺少数据签名")
-	}
-	err = c.signingMethod.Verify(string(bs), sig, c.publicKey)
-	if err != nil {
-		return nil, errors.New("校验数据签名失败: " + err.Error())
+	if sig == "" {
+		if c.signingMethod != nil {
+			return nil, errors.New("响应中缺少数据签名")
+		}
+	} else {
+		if c.signingMethod == nil {
+			return nil, errors.New("本地没有指定数据签名的算法")
+		}
+		err = c.signingMethod.Verify(string(bs), sig, c.publicKey)
+		if err != nil {
+			return nil, errors.New("校验数据签名失败: " + err.Error())
+		}
 	}
 
 	var list []AvailableUpdate

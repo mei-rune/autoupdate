@@ -26,11 +26,9 @@ func NewUpdater(opts Options) (*Updater, error) {
 		Client:  opts.HTTP,
 	}
 
-	if opts.SigningAlgorithm != "" {
-		err = client.LoadSigningMethod(opts.SigningAlgorithm, opts.PublicKeyFile)
-		if err != nil {
-			return nil, errors.New("'signing_algorithm' 不正确: " + err.Error())
-		}
+	err = client.LoadSigningMethod(opts.SigningAlgorithm, opts.PublicKeyFile)
+	if err != nil {
+		return nil, errors.New("加载签名失败: " + err.Error())
 	}
 
 	if opts.Repo == "" {
