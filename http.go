@@ -28,7 +28,7 @@ func GetDefaultSignMethod() string {
 	return jwt.SigningMethodPS512.Alg()
 }
 
-func LoadRsaPublicKey(keyFile string) (crypto.PublicKey, error) {
+func LoadPublicKey(keyFile string) (crypto.PublicKey, error) {
 	key, err := ioutil.ReadFile(keyFile)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func LoadRsaPublicKey(keyFile string) (crypto.PublicKey, error) {
 	return parsedKey, nil
 }
 
-func LoadRsaPrivateKey(keyFile string) (crypto.PrivateKey, error) {
+func LoadPrivateKey(keyFile string) (crypto.PrivateKey, error) {
 	key, err := ioutil.ReadFile(keyFile)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ func NewHTTPServer(osdir string, signMethod, privateKey string) (*HTTPServer, er
 	}
 
 	if privateKey != "" {
-		key, err := LoadRsaPrivateKey(privateKey)
+		key, err := LoadPrivateKey(privateKey)
 		if err != nil {
 			return nil, errors.New("Unable to parse RSA private key: " + err.Error())
 		}
@@ -450,7 +450,7 @@ type HTTPClient struct {
 
 func (c *HTTPClient) LoadSigningMethod(alg, keyFile string) error {
 	if keyFile != "" {
-		key, err := LoadRsaPublicKey(keyFile)
+		key, err := LoadPublicKey(keyFile)
 		if err != nil {
 			return err
 		}
