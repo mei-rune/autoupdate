@@ -3,6 +3,7 @@ package autoupdate
 import (
 	"context"
 	"errors"
+	"io/ioutil"
 	"log"
 	"net/url"
 	"os"
@@ -135,8 +136,16 @@ func (updater *Updater) ReadLocalVersions(ctx context.Context) ([]string, error)
 
 	var versionList []string
 	for _, fi := range fis {
+		if !fi.IsDir() {
+			continue
+		}
+
 		version := fi.Name()
 		if semver.IsValid(version) {
+			if !fileExists(filepath.Join(updater.Options.UpdateDir, version, "ok")) {
+				continue
+			}
+
 			versionList = append(versionList, version)
 		}
 	}
@@ -165,7 +174,9 @@ func (updater *Updater) ReadCurrentVersion(ctx context.Context) (string, error) 
 func (updater *Updater) Update(ctx context.Context, version string, info PackageInfo) error {
 	versionDir := filepath.Join(updater.Options.UpdateDir, version)
 	if err := os.MkdirAll(versionDir, 0775); err != nil {
-		return errors.New("尝试新建目录 '" + versionDir + "' 失败: " + err.Error())
+		if !os.IsExist(err) {
+			return errors.New("尝试新建目录 '" + versionDir + "' 失败: " + err.Error())
+		}
 	}
 
 	filename, err := updater.Client.RetrievePackage(ctx, info, versionDir)
@@ -174,14 +185,25 @@ func (updater *Updater) Update(ctx context.Context, version string, info Package
 	}
 
 	targetDir := filepath.Join(versionDir, "pkg")
+	if err := os.RemoveAll(targetDir); err != nil {
+		if !os.IsNotExist(err) {
+			return errors.New("尝试删除旧目录 '" + targetDir + "' 失败: " + err.Error())
+		}
+	}
 	if err := os.MkdirAll(targetDir, 0775); err != nil {
-		return errors.New("尝试新建目录 '" + targetDir + "' 失败: " + err.Error())
+		if !os.IsExist(err) {
+			return errors.New("尝试新建目录 '" + targetDir + "' 失败: " + err.Error())
+		}
 	}
 	if err := Uncompress(filename, targetDir); err != nil {
 		return errors.New("尝试解压安装包 '" + filename + "' 失败: " + err.Error())
 	}
 	if err := Apply(targetDir, updater.Options.RootDir, updater.Options); err != nil {
 		return errors.New("尝试更新文件失败: " + err.Error())
+	}
+
+	if err := ioutil.WriteFile(filepath.Join(versionDir, "ok"), []byte("ok"), 0666); err != nil {
+		return errors.New("更新文件成功后，写 ok 文件失败: " + err.Error())
 	}
 	return nil
 }

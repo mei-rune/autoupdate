@@ -3,6 +3,7 @@ package autoupdate
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -159,4 +160,15 @@ func ReadPackageInfo(dir fs.FS, pa, name string) (PackageInfo, error) {
 		URLPath:  u,
 		SUM:      string(sum),
 	}, nil
+}
+
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+		return false
+	}
+	return true
 }

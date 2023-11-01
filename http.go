@@ -154,6 +154,12 @@ const (
 )
 
 func copyReaderToFile(reader io.Reader, filename string) error {
+	if err := os.Remove(filename); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	}
+
 	out, err := os.Create(filename)
 	if err != nil {
 		return err
