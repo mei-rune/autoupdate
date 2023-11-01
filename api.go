@@ -13,6 +13,9 @@ type Options struct {
 	UpdateDir string `json:"update_dir"`
 	BackupDir string `json:"backup_dir"`
 
+	SigningAlgorithm string `json:"signing_algorithm"`
+	PublicKeyFile    string `json:"public_key_file"`
+
 	HTTP *http.Client `json:"-"`
 }
 

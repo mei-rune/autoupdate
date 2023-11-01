@@ -1,7 +1,9 @@
 package autoupdate
 
 import (
+	"bytes"
 	"context"
+	"crypto"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,15 +18,45 @@ import (
 	"sync"
 	"time"
 
+	jwt "github.com/golang-jwt/jwt/v4"
 	"golang.org/x/mod/semver"
 )
 
-func NewHTTPServer(osdir string) (*HTTPServer, error) {
-	return &HTTPServer{
-		dir:    os.DirFS(osdir),
-		osdir:  osdir,
-		hasher: defaultHasher,
-	}, nil
+func LoadRsaPublicKey(keyFile string) (crypto.PublicKey, error) {
+	key, err := ioutil.ReadFile(keyFile)
+	if err != nil {
+		return nil, err
+	}
+	rsaKey, err := jwt.ParseRSAPublicKeyFromPEM(key)
+	return rsaKey, err
+}
+
+func LoadRsaPrivateKey(keyFile string) (crypto.PrivateKey, error) {
+	key, err := ioutil.ReadFile(keyFile)
+	if err != nil {
+		return nil, err
+	}
+	rsaKey, err := jwt.ParseRSAPrivateKeyFromPEM(key)
+	return rsaKey, err
+}
+
+func NewHTTPServer(osdir string, signMethod, privateKey string) (*HTTPServer, error) {
+	hs := &HTTPServer{
+		dir:           os.DirFS(osdir),
+		osdir:         osdir,
+		hasher:        defaultHasher,
+		signingMethod: jwt.GetSigningMethod(signMethod),
+	}
+
+	if privateKey != "" {
+		key, err := LoadRsaPrivateKey(privateKey)
+		if err != nil {
+			return nil, errors.New("Unable to parse RSA private key: " + err.Error())
+		}
+		hs.privateKey = key
+	}
+
+	return hs, nil
 }
 
 type HTTPServer struct {
@@ -34,6 +66,9 @@ type HTTPServer struct {
 
 	dirCacheLock sync.Mutex
 	dirCache     map[string]*dirCache
+
+	privateKey    crypto.PrivateKey
+	signingMethod jwt.SigningMethod
 }
 
 func (hs *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -234,13 +269,16 @@ func (hs *HTTPServer) handleDeploy(w http.ResponseWriter, r *http.Request) {
 }
 
 type dirCache struct {
-	Value interface{}
-	Time  int64
+	Time int64
+	body []byte
+	sign string
 }
 
 func (c *dirCache) noTimeout() bool {
-	return (time.Now().Unix() - c.Time) < 60
+	return (time.Now().Unix() - c.Time) < 600
 }
+
+const xsignKey = "X-Hw-Sign"
 
 func (hs *HTTPServer) handleDir(w http.ResponseWriter, r *http.Request, st fs.FileInfo) {
 	pa := strings.Trim(r.URL.Path, "/")
@@ -255,39 +293,82 @@ func (hs *HTTPServer) handleDir(w http.ResponseWriter, r *http.Request, st fs.Fi
 	}()
 	if cachedValue != nil && cachedValue.noTimeout() {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(w).Encode(cachedValue.Value)
+		w.Header().Set(xsignKey, cachedValue.sign)
+		bs := cachedValue.body
+		for len(bs) > 0 {
+			n, err := w.Write(bs)
+			if err != nil {
+				return
+			}
+			bs = bs[n:]
+		}
 		return
 	}
 
-	err := ReadRepo(hs.dir, pa, func(list []AvailableUpdate) error {
+	handleFunc := func(pa string, value interface{}) error {
 		hs.dirCacheLock.Lock()
 		defer hs.dirCacheLock.Unlock()
 		if hs.dirCache == nil {
 			hs.dirCache = map[string]*dirCache{}
-		}
-		hs.dirCache[pa] = &dirCache{
-			Value: list,
-			Time:  time.Now().Unix(),
+		} else {
+			cachedValue := hs.dirCache[pa]
+			if cachedValue != nil && cachedValue.noTimeout() {
+				rendererBody(w, cachedValue.body, cachedValue.sign)
+				return nil
+			}
 		}
 
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		return json.NewEncoder(w).Encode(list)
-	}, func(pkgs []PackageInfo) error {
-		hs.dirCacheLock.Lock()
-		defer hs.dirCacheLock.Unlock()
-		if hs.dirCache == nil {
-			hs.dirCache = map[string]*dirCache{}
+		body, sign, err := hs.signBody(value)
+		if err != nil {
+			return err
 		}
+
+		rendererBody(w, body, sign)
+
 		hs.dirCache[pa] = &dirCache{
-			Value: pkgs,
-			Time:  time.Now().Unix(),
+			Time: time.Now().Unix(),
+			body: body,
+			sign: sign,
 		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		return json.NewEncoder(w).Encode(pkgs)
+		return nil
+	}
+
+	err := ReadRepo(hs.dir, pa, func(list []AvailableUpdate) error {
+		return handleFunc(pa, list)
+	}, func(pkgs []PackageInfo) error {
+		return handleFunc(pa, pkgs)
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (hs *HTTPServer) signBody(list interface{}) ([]byte, string, error) {
+	var buf = bytes.NewBuffer(make([]byte, 0, 4*1024))
+	err := json.NewEncoder(buf).Encode(list)
+	if err != nil {
+		return nil, "", err
+	}
+
+	sig, err := hs.signingMethod.Sign(buf.String(), hs.privateKey)
+	if err != nil {
+		return nil, "", err
+	}
+	return buf.Bytes(), sig, nil
+}
+
+func rendererBody(w http.ResponseWriter, body []byte, sig string) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set(xsignKey, sig)
+	w.WriteHeader(http.StatusOK)
+	for len(body) > 0 {
+		n, err := w.Write(body)
+		if err != nil {
+			return err
+		}
+		body = body[n:]
+	}
+	return nil
 }
 
 var errMissingSeek = errors.New("fs.File missing Seek method")
@@ -314,6 +395,22 @@ type HTTPClient struct {
 	BaseURL *url.URL
 	Client  *http.Client
 	Hasher  Hasher
+
+	publicKey     crypto.PublicKey
+	signingMethod jwt.SigningMethod
+}
+
+func (c *HTTPClient) LoadSigningMethod(alg, keyFile string) error {
+	if keyFile != "" {
+		key, err := LoadRsaPublicKey(keyFile)
+		if err != nil {
+			return err
+		}
+
+		c.publicKey = key
+	}
+	c.signingMethod = jwt.GetSigningMethod(alg)
+	return nil
 }
 
 func (c *HTTPClient) Read(ctx context.Context, repo string) ([]AvailableUpdate, error) {
@@ -343,8 +440,22 @@ func (c *HTTPClient) Read(ctx context.Context, repo string) ([]AvailableUpdate, 
 		return nil, errors.New(response.Status)
 	}
 
+	bs, err := ioutil.ReadAll(response.Body)
+	if len(bs) > 0 {
+		return nil, errors.New("读数据失败: " + err.Error())
+	}
+
+	sig := response.Header.Get(xsignKey)
+	if sig == "" && c.publicKey != nil {
+		return nil, errors.New("响应中缺少数据签名")
+	}
+	err = c.signingMethod.Verify(string(bs), sig, c.publicKey)
+	if err != nil {
+		return nil, errors.New("校验数据签名失败: " + err.Error())
+	}
+
 	var list []AvailableUpdate
-	err = json.NewDecoder(response.Body).Decode(&list)
+	err = json.Unmarshal(bs, &list)
 	if err != nil {
 		return nil, errors.New("读数据失败: " + err.Error())
 	}

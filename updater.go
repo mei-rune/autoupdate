@@ -26,6 +26,13 @@ func NewUpdater(opts Options) (*Updater, error) {
 		Client:  opts.HTTP,
 	}
 
+	if opts.SigningAlgorithm != "" {
+		err = client.LoadSigningMethod(opts.SigningAlgorithm, opts.PublicKeyFile)
+		if err != nil {
+			return nil, errors.New("'signing_algorithm' 不正确: " + err.Error())
+		}
+	}
+
 	if opts.Repo == "" {
 		return nil, errors.New("'repo' 不可为空")
 	}
@@ -199,7 +206,7 @@ func selectVersions(updateList []AvailableUpdate, currentVersion string) ([]stri
 	var pkgResults []PackageInfo
 
 	for _, pkg := range list {
-		for _, arch := range []string {
+		for _, arch := range []string{
 			getArch(),
 			getNoArch(),
 			"noarch",
