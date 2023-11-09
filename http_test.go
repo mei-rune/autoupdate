@@ -24,7 +24,7 @@ func TestSimple1(t *testing.T) {
 		defer os.RemoveAll(tempDir)
 	}
 
-	hs, err := NewHTTPServer(tempDir)
+	hs, err := NewHTTPServer(tempDir, "", "")
 	if err != nil {
 		t.Error(err)
 		return
