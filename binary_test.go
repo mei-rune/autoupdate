@@ -1,12 +1,14 @@
 package autoupdate
 
 import (
+	"bytes"
 	"io/ioutil"
 	//"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"archive/zip"
 )
 
 func TestBinary(t *testing.T) {
@@ -33,7 +35,9 @@ func TestBinary(t *testing.T) {
 		return
 	}
 
-	err = EmbedFile(filename1, filename2, ".\\file.zip")
+	zipFile := ".\\test_data\\file.zip"
+
+	err = EmbedFile(filename1, filename2, zipFile)
 	if err != nil {
 		t.Error(err)
 		return
@@ -47,5 +51,30 @@ func TestBinary(t *testing.T) {
 		return
 	}
 
-	t.Log(string(bs))
+	bs = bytes.TrimSpace(bs)
+
+	r, err := zip.OpenReader(zipFile)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer r.Close()
+
+	cr, err := r.Open("file.txt")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	expect, err := ioutil.ReadAll(cr)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	expect = bytes.TrimSpace(expect)
+	if !bytes.Equal(bs, expect) {
+		t.Error("want", string(expect))
+		t.Error(" got", string(bs))
+	}
 }

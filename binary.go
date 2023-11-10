@@ -29,13 +29,9 @@ func ReadEmbedDir() (fs.FS, error) {
 		return nil, errors.New("嵌入格式不正确, 信息头不正确")
 	}
 
-	bs := embedData[index : int(length)+index]
+	bs := embedData[index : int(length)+index+1]
 	reader, err := zip.NewReader(bytes.NewReader(bs), int64(len(bs)))
-	if err != nil {
-		return nil, err
-	}
-
-	return reader, nil
+	return reader, err
 }
 
 func EmbedFile(src, dest string, embedFile string) error {
@@ -76,7 +72,9 @@ func patchFile(w io.Writer, embedFile string) error {
 
 	size := st.Size()
 
-	_, err = io.WriteString(w, magicTag+strconv.FormatInt(size, 10)+"\n")
+	header := magicTag + strconv.FormatInt(size, 10) + "\n"
+
+	_, err = io.WriteString(w, header)
 	if err != nil {
 		return err
 	}
@@ -134,35 +132,72 @@ func searchKeyword(r io.ReadSeeker, keyword []byte) (int64, error) {
 	var buf = make([]byte, 4*1024)
 
 	fileSeek := int64(0)
-	bs := buf
+	remainBuf := buf
 	for {
-		n, err := readFull(r, bs)
+		n, err := readFull(r, remainBuf)
 		if err != nil {
 			return -1, err
 		}
-		bs = bs[:n]
 
-		index := bytes.Index(buf, key)
+		remainBuf = remainBuf[n:]
+
+		data := buf[:len(buf)-len(remainBuf)]
+		index := bytes.Index(data, key)
 		if index < 0 {
-			step := len(buf) - len(key) + 1
-			n = copy(buf, buf[step:])
-			bs = buf[:n]
+			step := len(data) - len(key) + 1
+			n = copy(buf, data[step:])
+			remainBuf = buf[n:]
 
 			fileSeek += int64(step)
 			continue
 		}
 
-		ok, err := readAndMatch(r, embedData[len(key):])
+		if len(keyword) > len(data[index:]) {
+			if !bytes.Equal(keyword[:len(data[index:])], data[index:]) {
+				step := index + len(key) - 1
+				n = copy(buf, data[step:])
+				remainBuf = buf[n:]
+
+				fileSeek += int64(step)
+				continue
+			}
+		} else {
+			if !bytes.Equal(data[index:index+len(keyword)], keyword) {
+				step := index + len(key) - 1
+				n = copy(buf, data[step:])
+				remainBuf = buf[n:]
+
+				fileSeek += int64(step)
+				continue
+			}
+
+			fileSeek += int64(index)
+			return fileSeek, nil
+		}
+
+		ok, err := readAndMatch(r, keyword[len(data)-index:])
 		if err != nil {
 			return 0, err
 		}
 		if ok {
+			fileSeek += int64(index)
+
+			_, err = r.Seek(fileSeek, io.SeekStart)
+			if err != nil {
+				return 0, err
+			}
+			ok, err = readAndMatch(r, keyword)
+			if err != nil {
+				return 0, err
+			}
+
 			return fileSeek, nil
 		}
 
 		step := index + len(key)
+
 		n = copy(buf, buf[step:])
-		bs = buf[:n]
+		remainBuf = buf[:n]
 		fileSeek += int64(step)
 		_, err = r.Seek(fileSeek, io.SeekStart)
 		if err != nil {
@@ -180,16 +215,21 @@ func readAndMatch(r io.Reader, bs []byte) (bool, error) {
 				return false, err
 			}
 		}
-		buf = buf[n:]
 
-		if len(bs) > len(buf) {
-			if !bytes.Equal(bs[:len(buf)], buf) {
+		if n <= 0 {
+			return false, io.EOF
+		}
+		tmp := buf[:n]
+
+		if len(bs) > len(tmp) {
+			if !bytes.Equal(bs[:len(tmp)], tmp) {
+
 				return false, nil
 			}
 
-			bs = bs[len(buf):]
+			bs = bs[len(tmp):]
 		} else {
-			return bytes.Equal(buf[:len(bs)], bs), nil
+			return bytes.Equal(tmp[:len(bs)], bs), nil
 		}
 	}
 	return true, nil
@@ -204,6 +244,9 @@ func readFull(r io.Reader, buf []byte) (int, error) {
 				return length, nil
 			}
 			return length, err
+		}
+		if n <= 0 {
+			return length, nil
 		}
 
 		length += n
@@ -229,6 +272,8 @@ func CopyFile(src, dest string) error {
 	return err
 }
 
+// 这里不可以用 strings.Repect() 来实现，因为我们想要在
+// 可执行文件中产生一块连续的内存，然后我们可以修改它
 var embedData = []byte(`0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
 0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
 0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
