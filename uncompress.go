@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -13,6 +14,18 @@ import (
 
 	securejoin "github.com/cyphar/filepath-securejoin"
 )
+
+
+func Compress(filename, targetDir string, args []string) error {
+	if strings.HasSuffix(filename, ".zip") {
+		return compressZip(filename, targetDir, args)
+	} else if strings.HasSuffix(filename, ".tar.gz") || strings.HasSuffix(filename, ".tgz") {
+		return compressTargz(filename, targetDir, args)
+		// } else if strings.HasSuffix(filename, ".tar.xz") {
+		// 	return uncompressTarxz(filename, targetDir)
+	}
+	return errors.New("文件格式不支持 - '" + filepath.Base(filename) + "'")
+}
 
 func Uncompress(filename, targetDir string) error {
 	if strings.HasSuffix(filename, ".zip") {
@@ -23,6 +36,78 @@ func Uncompress(filename, targetDir string) error {
 		// 	return uncompressTarxz(filename, targetDir)
 	}
 	return errors.New("文件格式不支持 - '" + filepath.Base(filename) + "'")
+}
+
+func compressZip(filename string, targetDir string, args []string) error {
+	w, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer w.Close()
+
+	files := zip.NewWriter(w)
+	defer files.Close()
+
+	dir := os.DirFS(targetDir)
+
+	if len(args) > 0 {  
+		for _, name := range args {
+			err := addFileToZip(files, dir, name)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		fis, err := fs.ReadDir(dir, ".")
+		if err != nil {
+			return err
+		}
+		for _, fi := range fis {
+			if fi.IsDir() {
+				err = addDirToZip(files, dir, fi.Name())
+			}  else {
+				err = addFileToZip(files, dir, fi.Name())
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func addFileToZip(files *zip.Writer, dir fs.FS, name string) error {
+	r, err := dir.Open(name)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	w, err := files.Create(filepath.ToSlash(name))
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(w, r)
+	return err
+}
+
+func addDirToZip(files *zip.Writer, dir fs.FS, name string) error {
+	fis, err := fs.ReadDir(dir, name)
+	if err != nil {
+		return err
+	}
+	for _, fi := range fis {
+		if fi.IsDir() {
+			err = addDirToZip(files, dir, filepath.Join(name, fi.Name()))
+		}  else {
+			err = addFileToZip(files, dir, filepath.Join(name, fi.Name()))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func uncompressZip(filename string, targetDir string) error {
@@ -84,6 +169,89 @@ func extractZipArchiveFile(file *zip.File, dest string, input io.Reader) error {
 		}
 	}
 
+	return nil
+}
+
+func compressTargz(filename string, targetDir string, args []string) error {
+	w, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer w.Close()
+
+	zw := gzip.NewWriter(w)
+	defer zw.Close()
+
+	files := tar.NewWriter(zw)
+	defer files.Close()
+
+	dir := os.DirFS(targetDir)
+
+	if len(args) > 0 {  
+		for _, name := range args {
+			err := addFileToTar(files, dir, name)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		fis, err := fs.ReadDir(dir, ".")
+		if err != nil {
+			return err
+		}
+		for _, fi := range fis {
+			if fi.IsDir() {
+				err = addDirToTar(files, dir, fi.Name())
+			}  else {
+				err = addFileToTar(files, dir, fi.Name())
+			}
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func addFileToTar(files *tar.Writer, dir fs.FS, name string) error {
+	st, err := fs.Stat(dir, name)
+	if err != nil {
+		return err
+	}
+
+	r, err := dir.Open(name)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	hdr := &tar.Header{
+		Name: filepath.ToSlash(name),
+		Mode: 0600,
+		Size: st.Size(),
+	}
+	if err = files.WriteHeader(hdr); err != nil {
+		return err
+	}
+	_, err = io.Copy(files, r)
+	return err
+}
+
+func addDirToTar(files *tar.Writer, dir fs.FS, name string) error {
+	fis, err := fs.ReadDir(dir, name)
+	if err != nil {
+		return err
+	}
+	for _, fi := range fis {
+		if fi.IsDir() {
+			err = addDirToTar(files, dir, filepath.Join(name, fi.Name()))
+		}  else {
+			err = addFileToTar(files, dir, filepath.Join(name, fi.Name()))
+		}
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

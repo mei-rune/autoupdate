@@ -63,6 +63,7 @@ func (s *Service) Run(args []string) error {
 			Help:    true,
 		}
 	}
+	s.Base.init()
 
 	hs, err := autoupdate.NewHTTPServer(s.dir, s.signMethod, s.privateKey)
 	if err != nil {

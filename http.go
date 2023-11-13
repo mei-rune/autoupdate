@@ -628,6 +628,18 @@ func DeployWithReader(client *http.Client, hasher Hasher, u string, filename str
 	})
 }
 
+func DeployWithOnlyPackageFile(client *http.Client, hasher Hasher, u string, filename string) error {
+	//打开文件句柄操作
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	return DeployWithReader(client, hasher, u, filename, file)
+}
+
+
 func Deploy(client *http.Client, u string, filename, sumfilename string) error {
 	if sumfilename != "" {
 		if ext := filepath.Ext(sumfilename); ext != ".sum" {
