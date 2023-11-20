@@ -4,17 +4,22 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"io/ioutil"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -76,11 +81,12 @@ func LoadPrivateKey(keyFile string) (crypto.PrivateKey, error) {
 	return parsedKey, nil
 }
 
-func NewHTTPServer(osdir string, signMethod, privateKey string) (*HTTPServer, error) {
+func NewHTTPServer(prefix, osdir string, signMethod, privateKey string) (*HTTPServer, error) {
 	if signMethod == "" {
 		signMethod = GetDefaultSignMethod()
 	}
 	hs := &HTTPServer{
+		prefix:        prefix,
 		dir:           os.DirFS(osdir),
 		osdir:         osdir,
 		hasher:        defaultHasher,
@@ -99,6 +105,7 @@ func NewHTTPServer(osdir string, signMethod, privateKey string) (*HTTPServer, er
 }
 
 type HTTPServer struct {
+	prefix string
 	dir    fs.FS
 	osdir  string
 	hasher Hasher
@@ -108,6 +115,34 @@ type HTTPServer struct {
 
 	privateKey    crypto.PrivateKey
 	signingMethod jwt.SigningMethod
+}
+
+func (hs *HTTPServer) handlePublicKey(w http.ResponseWriter, r *http.Request) {
+	var block *pem.Block
+	switch k := hs.privateKey.(type) {
+	case *rsa.PrivateKey:
+		block = &pem.Block{
+			Type:  "RSA PUBLIC KEY",
+			Bytes: x509.MarshalPKCS1PublicKey(&k.PublicKey),
+		}
+	case *ecdsa.PrivateKey:
+		b, err := x509.MarshalPKIXPublicKey(&k.PublicKey)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Unable to marshal ECDSA public key: %v", err), http.StatusInternalServerError)
+			return
+		}
+		block = &pem.Block{Type: "EC PUBLIC KEY", Bytes: b}
+	default:
+		http.Error(w, fmt.Sprintf("Unable to read key: %T", hs.privateKey), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(http.StatusOK)
+	err := pem.Encode(w, block)
+	if err != nil {
+		log.Println("download public key of '"+hs.prefix+"' fail,", err)
+	}
 }
 
 func (hs *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +158,12 @@ func (hs *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "您必须指定一个仓库!", http.StatusBadRequest)
 			return
 		}
+
+		if strings.HasSuffix(dir, "/pub.pem") {
+			hs.handlePublicKey(w, r)
+			return
+		}
+
 		st, err := fs.Stat(hs.dir, dir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -330,10 +371,29 @@ func (c *dirCache) noTimeout() bool {
 
 const xsignKey = "X-Hw-Sign"
 
+func (hs *HTTPServer) handleChannels(w http.ResponseWriter, r *http.Request, pa string) {
+	channels, err := ReadRepoDir(hs.dir, pa)
+	if err != nil {
+		http.Error(w, "查询频道失败： "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, "{")
+	for idx, channel := range channels {
+		if idx > 0 {
+			io.WriteString(w, ",")
+		}
+		fmt.Fprintf(w, "%q", path.Join(pa, channel))
+	}
+	io.WriteString(w, "}")
+	return
+}
+
 func (hs *HTTPServer) handleDir(w http.ResponseWriter, r *http.Request, st fs.FileInfo) {
 	pa := strings.Trim(r.URL.Path, "/")
 	if !strings.Contains(pa, "/") {
-		http.Error(w, "仓库名不正确，仓库名一般格式为 '仓库名/分支'", http.StatusBadRequest)
+		hs.handleChannels(w, r, pa)
+		// http.Error(w, "仓库名不正确，仓库名一般格式为 '仓库名/分支'", http.StatusBadRequest)
 		return
 	}
 
@@ -638,7 +698,6 @@ func DeployWithOnlyPackageFile(client *http.Client, hasher Hasher, u string, fil
 
 	return DeployWithReader(client, hasher, u, filename, file)
 }
-
 
 func Deploy(client *http.Client, u string, filename, sumfilename string) error {
 	if sumfilename != "" {

@@ -3,12 +3,13 @@ package autoupdate
 import (
 	"bytes"
 	"io/ioutil"
+
 	//"os"
+	"archive/zip"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
-	"archive/zip"
 )
 
 func TestBinary(t *testing.T) {

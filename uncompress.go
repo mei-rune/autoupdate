@@ -15,7 +15,6 @@ import (
 	securejoin "github.com/cyphar/filepath-securejoin"
 )
 
-
 func Compress(filename, targetDir string, args []string) error {
 	if strings.HasSuffix(filename, ".zip") {
 		return compressZip(filename, targetDir, args)
@@ -50,7 +49,7 @@ func compressZip(filename string, targetDir string, args []string) error {
 
 	dir := os.DirFS(targetDir)
 
-	if len(args) > 0 {  
+	if len(args) > 0 {
 		for _, name := range args {
 			err := addFileToZip(files, dir, name)
 			if err != nil {
@@ -65,7 +64,7 @@ func compressZip(filename string, targetDir string, args []string) error {
 		for _, fi := range fis {
 			if fi.IsDir() {
 				err = addDirToZip(files, dir, fi.Name())
-			}  else {
+			} else {
 				err = addFileToZip(files, dir, fi.Name())
 			}
 			if err != nil {
@@ -100,7 +99,7 @@ func addDirToZip(files *zip.Writer, dir fs.FS, name string) error {
 	for _, fi := range fis {
 		if fi.IsDir() {
 			err = addDirToZip(files, dir, filepath.Join(name, fi.Name()))
-		}  else {
+		} else {
 			err = addFileToZip(files, dir, filepath.Join(name, fi.Name()))
 		}
 		if err != nil {
@@ -187,7 +186,7 @@ func compressTargz(filename string, targetDir string, args []string) error {
 
 	dir := os.DirFS(targetDir)
 
-	if len(args) > 0 {  
+	if len(args) > 0 {
 		for _, name := range args {
 			err := addFileToTar(files, dir, name)
 			if err != nil {
@@ -202,7 +201,7 @@ func compressTargz(filename string, targetDir string, args []string) error {
 		for _, fi := range fis {
 			if fi.IsDir() {
 				err = addDirToTar(files, dir, fi.Name())
-			}  else {
+			} else {
 				err = addFileToTar(files, dir, fi.Name())
 			}
 			if err != nil {
@@ -245,7 +244,7 @@ func addDirToTar(files *tar.Writer, dir fs.FS, name string) error {
 	for _, fi := range fis {
 		if fi.IsDir() {
 			err = addDirToTar(files, dir, filepath.Join(name, fi.Name()))
-		}  else {
+		} else {
 			err = addFileToTar(files, dir, filepath.Join(name, fi.Name()))
 		}
 		if err != nil {
