@@ -35,5 +35,32 @@ type PackageInfo struct {
 type Client interface {
 	Read(ctx context.Context, repo string) ([]AvailableUpdate, error)
 
+	DownloadKeyFile(ctx context.Context, repo string) (string, error)
+
 	RetrievePackage(ctx context.Context, info PackageInfo, dir string) (string, error)
+}
+
+func ReadConfigFrom(opts *Options, props map[string]string, prefix string) error {
+	if s, ok := props[prefix + "base_url"]; ok {
+		opts.BaseURL = s
+	}
+	if s, ok := props[prefix + "signing_algorithm"]; ok {
+		opts.SigningAlgorithm = s
+	}
+	if s, ok := props[prefix + "public_key_file"]; ok {
+		opts.PublicKeyFile = s
+	}
+	if s, ok := props[prefix + "repo"]; ok {
+		opts.Repo = s
+	}
+	if s, ok := props[prefix + "root_dir"]; ok {
+		opts.RootDir = s
+	}
+	if s, ok := props[prefix + "update_dir"]; ok {
+		opts.UpdateDir = s
+	}
+	if s, ok := props[prefix + "backup_dir"]; ok {
+		opts.BackupDir = s
+	}
+	return nil
 }

@@ -2,11 +2,16 @@ package autoupdate
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -107,6 +112,98 @@ func (rm *RepoManager) ReadonlyList() []Repo {
 	return list
 }
 
+func (rm *RepoManager) CreateRepo(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(defaultMaxMemory)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	names := r.MultipartForm.Value["name"]
+	switch len(names) {
+	case 0:
+		http.Error(w, "请指标仓库名", http.StatusBadRequest)
+		return
+	case 1:
+	default:
+		http.Error(w, "你指定了多个仓库名", http.StatusBadRequest)
+		return
+	}
+	reponame := strings.Trim(names[0], "/")
+	if reponame == "" {
+		http.Error(w, "仓库路径不正确", http.StatusBadRequest)
+		return
+	}
+	if strings.Contains(reponame, "/") {
+		http.Error(w, "仓库路径不正确", http.StatusBadRequest)
+		return
+	}
+
+	var file multipart.File
+	for _, files := range r.MultipartForm.File {
+		if len(files) == 0 {
+			continue
+		}
+
+		filename := filepath.Base(files[0].Filename)
+		if filename != "key.pem" {
+			continue
+		}
+
+		file, err = files[0].Open()
+		if err != nil {
+			http.Error(w, "读附件 '"+files[0].Filename+"' 失败: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+	}
+
+	dirpath := filepath.Join(rm.rootDir, reponame)
+	if err := os.MkdirAll(dirpath, 0666); err != nil {
+		if !os.IsExist(err) {
+			http.Error(w, "创建目录失败:"+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	pemFilename := filepath.Join(dirpath, "key.pem")
+	if file != nil {
+		if err = copyReaderToFile(file, pemFilename); err != nil {
+			http.Error(w, "保存 key.pem 文件失败:"+err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else if values := r.MultipartForm.Value["use_default_key"]; len(values) > 0 && values[len(values)-1] == "true" {
+		//
+	} else {
+		priv, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			http.Error(w, "生成 private key 失败:"+err.Error(), http.StatusBadRequest)
+			return
+		}
+		keyOut, err := os.Create(pemFilename)
+		if err != nil {
+			http.Error(w, "创建 key.pem 失败: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		block := &pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: x509.MarshalPKCS1PrivateKey(priv),
+		}
+		pem.Encode(keyOut, block)
+		keyOut.Close()
+	}
+
+	repo, err := readDir(rm.rootDir, reponame, rm.signMethod, rm.defaultPrivateFile)
+	if err != nil {
+		http.Error(w, "加载 key.pem 失败: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	rm.Add(repo)
+
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, "{\"code\": 200}")
+}
+
 func (rm *RepoManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rm.ServeHTTPWithContext(r.Context(), w, r, r.URL.Path)
 }
@@ -115,6 +212,10 @@ func (rm *RepoManager) ServeHTTPWithContext(ctx context.Context, w http.Response
 	list := rm.ReadonlyList()
 
 	if pa == "" || pa == "/" {
+		if r.Method == http.MethodPost {
+			rm.CreateRepo(ctx, w, r)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		io.WriteString(w, "{")
 		for idx, repo := range list {

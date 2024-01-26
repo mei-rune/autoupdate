@@ -81,6 +81,10 @@ func (updater *Updater) Test(ctx context.Context) error {
 	return err
 }
 
+func (updater *Updater) DownloadKeyFile(ctx context.Context) (string, error) {
+	return updater.Client.DownloadKeyFile(ctx, updater.Options.Repo)
+}
+
 func (updater *Updater) DoUpdate(ctx context.Context) (bool, error) {
 	if updater.currentVersion == "" {
 		var err error

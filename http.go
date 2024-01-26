@@ -585,6 +585,40 @@ func (c *HTTPClient) Read(ctx context.Context, repo string) ([]AvailableUpdate, 
 	return list, nil
 }
 
+func (c *HTTPClient) DownloadKeyFile(ctx context.Context, repo string) (string, error) {
+	client := c.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	response, err := client.Get(c.BaseURL.JoinPath(repo, "/pub.pem").String())
+	if err != nil {
+		return "", err
+	}
+	if response.Body != nil {
+		defer func(rc io.ReadCloser) {
+			io.CopyN(ioutil.Discard, rc, 1<<30)
+			rc.Close()
+		}(response.Body)
+	}
+
+	if response.StatusCode != http.StatusOK {
+		if response.Body != nil {
+			bs, _ := ioutil.ReadAll(response.Body)
+			if len(bs) > 0 {
+				return "", errors.New(string(bs))
+			}
+		}
+		return "", errors.New(response.Status)
+	}
+
+	bs, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return "", errors.New("读数据失败: " + err.Error())
+	}
+	return string(bs), nil
+}
+
 func (c *HTTPClient) RetrievePackage(ctx context.Context, info PackageInfo, dir string) (string, error) {
 	var err error
 	for i := 0; ; i++ {

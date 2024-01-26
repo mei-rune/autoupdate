@@ -7,26 +7,40 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
 const magicTag = "autov1 "
 
+func IsEmbedError(err error) bool {
+	_, ok := err.(embedError)
+	return ok
+}
+
+type embedError struct {
+	err error
+}
+
+func (e embedError) Error() string {
+	return e.err.Error()
+}
+
 func ReadEmbedDir() (fs.FS, error) {
 	line := embedData[:1000]
 	index := bytes.IndexByte(line, '\n')
 	if index < 0 {
-		return nil, errors.New("没有找到信息头，文件没有嵌入配置吧")
+		return nil, embedError{errors.New("没有找到信息头，文件没有嵌入配置吧")}
 	}
 
 	line = bytes.TrimSpace(line[:index])
 	if !bytes.HasPrefix(line, []byte(magicTag)) {
-		return nil, errors.New("嵌入格式不正确, 信息头不正确")
+		return nil, embedError{errors.New("嵌入格式不正确, 信息头不正确")}
 	}
 
 	length, err := strconv.ParseInt(string(bytes.TrimPrefix(line, []byte(magicTag))), 10, 64)
 	if err != nil {
-		return nil, errors.New("嵌入格式不正确, 信息头不正确")
+		return nil, embedError{errors.New("嵌入格式不正确, 信息头不正确")}
 	}
 
 	bs := embedData[index : int(length)+index+1]
@@ -264,12 +278,24 @@ func CopyFile(src, dest string) error {
 
 	w, err := os.Create(dest)
 	if err != nil {
-		return err
+		if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0777); err != nil {
+			return err
+		}
+		w, err = os.Create(dest)
+		if err != nil {
+			return err
+		}
 	}
 	defer w.Close()
 
 	_, err = io.Copy(w, r)
-	return err
+	if err != nil {
+		return err
+	}
+	return w.Close()
 }
 
 // 这里不可以用 strings.Repect() 来实现，因为我们想要在
