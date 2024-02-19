@@ -2,6 +2,7 @@ package autoupdate
 
 import (
 	"context"
+	"os"
 	"net/http"
 )
 
@@ -41,8 +42,13 @@ type Client interface {
 }
 
 func ReadConfigFrom(opts *Options, props map[string]string, prefix string) error {
-	if s, ok := props[prefix + "base_url"]; ok {
-		opts.BaseURL = s
+	if s, ok := props[prefix + "update_url"]; ok {		
+		opts.BaseURL = os.Expand(s, func(key string) string {
+			if value, ok := props[key]; ok {
+				return value
+			}
+			return "${" + key + "}"
+		})
 	}
 	if s, ok := props[prefix + "signing_algorithm"]; ok {
 		opts.SigningAlgorithm = s
