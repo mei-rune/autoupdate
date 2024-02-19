@@ -53,13 +53,6 @@ func (s *Deploy) Run(args []string) error {
 		return err
 	}
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}
+	client := autoupdate.GetDefaultHttpClient()
 	return autoupdate.DeployWithOnlyPackageFile(client, nil, s.u, filename)
 }

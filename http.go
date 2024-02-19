@@ -6,6 +6,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -530,13 +531,25 @@ func (c *HTTPClient) LoadSigningMethod(alg, keyFile string) error {
 	return nil
 }
 
+func GetDefaultHttpClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+}
+
 func (c *HTTPClient) Read(ctx context.Context, repo string) ([]AvailableUpdate, error) {
 	client := c.Client
 	if client == nil {
-		client = http.DefaultClient
+		client = GetDefaultHttpClient()
 	}
 
-	response, err := client.Get(c.BaseURL.JoinPath(repo).String())
+	urlstr := c.BaseURL.JoinPath(repo).String()
+	response, err := client.Get(urlstr)
 	if err != nil {
 		return nil, err
 	}
@@ -548,6 +561,9 @@ func (c *HTTPClient) Read(ctx context.Context, repo string) ([]AvailableUpdate, 
 	}
 
 	if response.StatusCode != http.StatusOK {
+		if response.StatusCode == http.StatusNotFound {
+			return nil, errors.New("GET '" + urlstr + "', " + response.Status)
+		}
 		if response.Body != nil {
 			bs, _ := ioutil.ReadAll(response.Body)
 			if len(bs) > 0 {
@@ -588,7 +604,7 @@ func (c *HTTPClient) Read(ctx context.Context, repo string) ([]AvailableUpdate, 
 func (c *HTTPClient) DownloadKeyFile(ctx context.Context, repo string) (string, error) {
 	client := c.Client
 	if client == nil {
-		client = http.DefaultClient
+		client = GetDefaultHttpClient()
 	}
 
 	response, err := client.Get(c.BaseURL.JoinPath(repo, "/pub.pem").String())
@@ -650,7 +666,7 @@ func (c *HTTPClient) RetrievePackage(ctx context.Context, info PackageInfo, dir 
 func (c *HTTPClient) download(ctx context.Context, info PackageInfo, dir string) (string, error) {
 	client := c.Client
 	if client == nil {
-		client = http.DefaultClient
+		client = GetDefaultHttpClient()
 	}
 	response, err := client.Get(c.BaseURL.JoinPath(info.URLPath).String())
 	if err != nil {
@@ -766,7 +782,7 @@ func Deploy(client *http.Client, u string, filename, sumfilename string) error {
 
 func deploy(client *http.Client, u string, dataFn, sumFn func(*multipart.Writer) error) error {
 	if client == nil {
-		client = http.DefaultClient
+		client = GetDefaultHttpClient()
 	}
 
 	pr, pw := io.Pipe()
