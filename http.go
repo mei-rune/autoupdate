@@ -531,8 +531,7 @@ func (c *HTTPClient) LoadSigningMethod(alg, keyFile string) error {
 	return nil
 }
 
-func GetDefaultHttpClient() *http.Client {
-	return &http.Client{
+var insecureClient = &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 			TLSClientConfig: &tls.Config{
@@ -540,6 +539,9 @@ func GetDefaultHttpClient() *http.Client {
 			},
 		},
 	}
+
+func GetDefaultHttpClient() *http.Client {
+	return insecureClient
 }
 
 func (c *HTTPClient) Read(ctx context.Context, repo string) ([]AvailableUpdate, error) {
