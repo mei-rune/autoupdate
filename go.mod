@@ -10,4 +10,5 @@ require (
 require (
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
+	github.com/runner-mei/command v0.0.0-20231123041045-daa450b9c256 // indirect
 )

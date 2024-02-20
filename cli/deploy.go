@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"crypto/tls"
 	"errors"
 	"flag"
-	"net/http"
 
 	"github.com/mei-rune/autoupdate"
 	"github.com/runner-mei/command"
