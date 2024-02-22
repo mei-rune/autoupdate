@@ -2,8 +2,8 @@ package autoupdate
 
 import (
 	"context"
-	"os"
 	"net/http"
+	"os"
 )
 
 type Options struct {
@@ -42,7 +42,7 @@ type Client interface {
 }
 
 func ReadConfigFrom(opts *Options, props map[string]string, prefix string) error {
-	if s, ok := props[prefix + "update_url"]; ok {		
+	if s, ok := props[prefix+"update_url"]; ok {
 		opts.BaseURL = os.Expand(s, func(key string) string {
 			if value, ok := props[key]; ok {
 				return value
@@ -50,22 +50,22 @@ func ReadConfigFrom(opts *Options, props map[string]string, prefix string) error
 			return "${" + key + "}"
 		})
 	}
-	if s, ok := props[prefix + "signing_algorithm"]; ok {
+	if s, ok := props[prefix+"signing_algorithm"]; ok {
 		opts.SigningAlgorithm = s
 	}
-	if s, ok := props[prefix + "public_key_file"]; ok {
+	if s, ok := props[prefix+"public_key_file"]; ok {
 		opts.PublicKeyFile = s
 	}
-	if s, ok := props[prefix + "repo"]; ok {
+	if s, ok := props[prefix+"repo"]; ok {
 		opts.Repo = s
 	}
-	if s, ok := props[prefix + "root_dir"]; ok {
+	if s, ok := props[prefix+"root_dir"]; ok {
 		opts.RootDir = s
 	}
-	if s, ok := props[prefix + "update_dir"]; ok {
+	if s, ok := props[prefix+"update_dir"]; ok {
 		opts.UpdateDir = s
 	}
-	if s, ok := props[prefix + "backup_dir"]; ok {
+	if s, ok := props[prefix+"backup_dir"]; ok {
 		opts.BackupDir = s
 	}
 	return nil
