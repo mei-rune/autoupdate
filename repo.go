@@ -23,7 +23,9 @@ import (
 func ReadRepoManager(rootDir, signMethod, defaultPrivateFile string) (*RepoManager, error) {
 	fis, err := ioutil.ReadDir(rootDir)
 	if err != nil {
-		return nil, err
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
 	}
 
 	rm := &RepoManager{
@@ -245,7 +247,11 @@ func (rm *RepoManager) ServeHTTPWithContext(ctx context.Context, w http.Response
 
 		repo, err := rm.readDir(ctx, dir)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			if os.IsNotExist(err) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+			} else {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 
