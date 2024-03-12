@@ -357,6 +357,12 @@ func (hs *HTTPServer) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "上传成功!")
 }
 
+func (hs *HTTPServer) flushCache() {
+	hs.dirCacheLock.Lock()
+	defer hs.dirCacheLock.Unlock()
+	hs.dirCache = map[string]*dirCache{}
+}
+
 type dirCache struct {
 	Time int64
 	body []byte

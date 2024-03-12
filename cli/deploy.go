@@ -27,7 +27,7 @@ func (s *Deploy) Flags(fs *flag.FlagSet) *flag.FlagSet {
 	// fs = s.Base.Flags(fs)
 	fs.StringVar(&s.u, "url", "http://127.0.0.1:37152", "补丁服务器的地址")
 	fs.StringVar(&s.repo, "repo", "", "补丁服务器的仓库名称")
-	fs.StringVar(&s.version, "version", "", "补丁服务器的地址")
+	fs.StringVar(&s.version, "version", "", "补丁服务器的版本")
 	fs.StringVar(&s.arch, "arch", "", "操作系统，可取值: windows_amd64, linux_amd64")
 	fs.StringVar(&s.basedir, "basedir", "", "补丁文件的根目录")
 	return fs
