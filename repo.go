@@ -39,7 +39,7 @@ func ReadRepoManager(rootDir, signMethod, defaultPrivateFile string) (*RepoManag
 		if !fi.IsDir() {
 			continue
 		}
-		_, err := rm.readDir(ctx, fi.Name())
+		_, err := rm.readRepo(ctx, fi.Name())
 		if err != nil {
 			log.Println("load dir '"+fi.Name()+"' fail,", err)
 		} else {
@@ -62,8 +62,18 @@ type RepoManager struct {
 	mu                 sync.Mutex
 }
 
-func (rm *RepoManager) readDir(ctx context.Context, dir string) (Repo, error) {
+func (rm *RepoManager) readRepo(ctx context.Context, dir string) (Repo, error) {
 	repo, err := readDir(rm.rootDir, dir, rm.signMethod, rm.defaultPrivateFile)
+	if err != nil {
+		return Repo{}, err
+	}
+	rm.Add(repo)
+	return repo, nil
+}
+
+
+func (rm *RepoManager) createRepo(ctx context.Context, dir string) (Repo, error) {
+	repo, err := createDir(rm.rootDir, dir, rm.signMethod, rm.defaultPrivateFile)
 	if err != nil {
 		return Repo{}, err
 	}
@@ -245,14 +255,21 @@ func (rm *RepoManager) ServeHTTPWithContext(ctx context.Context, w http.Response
 	if index > 0 {
 		dir := pa[:index]
 
-		repo, err := rm.readDir(ctx, dir)
+		repo, err := rm.readRepo(ctx, dir)
 		if err != nil {
-			if os.IsNotExist(err) {
-				http.Error(w, err.Error(), http.StatusNotFound)
-			} else {
+			if !os.IsNotExist(err) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
-			return
+			if r.Method != http.MethodPost {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			repo, err = rm.createRepo(ctx, dir)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 
 		repo.Handler.ServeHTTP(w, r)
@@ -260,6 +277,23 @@ func (rm *RepoManager) ServeHTTPWithContext(ctx context.Context, w http.Response
 	}
 
 	http.NotFound(w, r)
+}
+
+func createDir(rootdir, dirname, signMethod, defaultPrivateFile string) (Repo, error) {
+	// dirpath := filepath.Join(rootdir, dirname)
+	repo := Repo{
+		Prefix: "/" + strings.Trim(dirname, "/") + "/",
+		// Handler: hs,
+		// CertFile:
+		// PrivateKey:
+		// PublicKey:
+	}
+	hs, err := NewHTTPServer(dirname, rootdir, signMethod, defaultPrivateFile)
+	if err != nil {
+		return Repo{}, err
+	}
+	repo.Handler = hs
+	return repo, nil
 }
 
 func readDir(rootdir, dirname, signMethod, defaultPrivateFile string) (Repo, error) {
