@@ -13,6 +13,7 @@ type Options struct {
 	RootDir   string `json:"root_dir"`
 	UpdateDir string `json:"update_dir"`
 	BackupDir string `json:"backup_dir"`
+	OsArch string `json:"os_arch"`
 
 	SigningAlgorithm string `json:"signing_algorithm"`
 	PublicKeyFile    string `json:"public_key_file"`
@@ -58,6 +59,9 @@ func ReadConfigFrom(opts *Options, props map[string]string, prefix string) error
 	}
 	if s, ok := props[prefix+"repo"]; ok {
 		opts.Repo = s
+	}
+	if s, ok := props[prefix+"os_arch"]; ok {
+		opts.OsArch = s
 	}
 	if s, ok := props[prefix+"root_dir"]; ok {
 		opts.RootDir = s

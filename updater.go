@@ -72,8 +72,12 @@ type Updater struct {
 	currentVersion string
 }
 
-func (updater *Updater) GetArch() string {
-	return getArch()
+func (updater *Updater) GetArch() string {	
+	osArch := updater.Options.OsArch
+	if osArch == "" {
+		osArch = runtime.GOOS + "_" + runtime.GOARCH
+	}
+	return osArch
 }
 
 func (updater *Updater) Test(ctx context.Context) error {
@@ -99,7 +103,15 @@ func (updater *Updater) DoUpdate(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	versionList, pkgList, err := selectVersions(updateList, updater.currentVersion)
+	osArch := updater.GetArch()
+
+	archList := []string{
+		osArch,
+		runtime.GOOS + "_noarch",
+		"noarch",
+	}
+
+	versionList, pkgList, err := SelectVersions(updateList, archList, updater.currentVersion)
 	if err != nil {
 		return false, err
 	}
@@ -212,15 +224,7 @@ func (updater *Updater) Update(ctx context.Context, version string, info Package
 	return nil
 }
 
-func getArch() string {
-	return runtime.GOOS + "_" + runtime.GOARCH
-}
-
-func getNoArch() string {
-	return runtime.GOOS + "_noarch"
-}
-
-func selectVersions(updateList []AvailableUpdate, currentVersion string) ([]string, []PackageInfo, error) {
+func SelectVersions(updateList []AvailableUpdate, osarchList []string, currentVersion string) ([]string, []PackageInfo, error) {
 	list, err := selectUpdateList(updateList, currentVersion)
 	if err != nil {
 		return nil, nil, err
@@ -230,11 +234,7 @@ func selectVersions(updateList []AvailableUpdate, currentVersion string) ([]stri
 	var pkgResults []PackageInfo
 
 	for _, pkg := range list {
-		for _, arch := range []string{
-			getArch(),
-			getNoArch(),
-			"noarch",
-		} {
+		for _, arch := range osarchList {
 			found := false
 			for _, info := range pkg.List {
 				if info.Arch == arch {
